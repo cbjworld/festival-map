@@ -147,16 +147,14 @@ export default function Home() {
     requestUserLocation();
   }, [requestUserLocation]);
 
-  const filteredFestivals = useMemo(() => {
+  // 지역/기간/검색어/종료축제 표시 여부까지만 적용한 목록. 상태(진행중/예정) 필터는 아직 적용 전이라,
+  // 이 목록을 기준으로 통계(전체/진행중/개최예정)를 내면 세 숫자가 같은 지역·기간 범위를 가리키게 된다.
+  const visibleFestivals = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
     return festivals.filter((festival) => {
       if (!showEnded && festival.status === "ended") return false;
       if (region !== "all" && festival.region !== region) return false;
-
-      if (statusFilter !== "all" && festival.status !== statusFilter) {
-        return false;
-      }
 
       // 선택한 기간과 축제 진행 기간이 겹치는 경우만 표시
       if (dateFrom && festival.endDate < dateFrom) return false;
@@ -169,7 +167,13 @@ export default function Home() {
 
       return true;
     });
-  }, [festivals, region, statusFilter, showEnded, searchQuery, dateFrom, dateTo]);
+  }, [festivals, region, showEnded, searchQuery, dateFrom, dateTo]);
+
+  // 실제로 지도/목록에 그리는 대상: 위 visibleFestivals에 상태 필터까지 마저 적용
+  const filteredFestivals = useMemo(() => {
+    if (statusFilter === "all") return visibleFestivals;
+    return visibleFestivals.filter((festival) => festival.status === statusFilter);
+  }, [visibleFestivals, statusFilter]);
 
   const selectedFestival = useMemo(
     () => festivals.find((f) => f.id === selectedFestivalId) ?? null,
@@ -177,12 +181,12 @@ export default function Home() {
   );
 
   const ongoingCount = useMemo(
-    () => festivals.filter((f) => f.status === "ongoing").length,
-    [festivals],
+    () => visibleFestivals.filter((f) => f.status === "ongoing").length,
+    [visibleFestivals],
   );
   const upcomingCount = useMemo(
-    () => festivals.filter((f) => f.status === "upcoming").length,
-    [festivals],
+    () => visibleFestivals.filter((f) => f.status === "upcoming").length,
+    [visibleFestivals],
   );
 
   function handleSelectFestival(festival: Festival) {
