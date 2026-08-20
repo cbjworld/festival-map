@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Pretendard", "Apple SD Gothic Neo", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
+}
+
+/* 카카오맵 SDK가 삽입하는 기본 UI 요소가 커스텀 오버레이 위에 겹치지 않도록 z-index 보정 */
+.festival-marker-wrap {
+  z-index: 1;
+}
+
+/* 세그먼트 컨트롤 등 가로 스크롤 영역에서 스크롤바를 시각적으로 숨김 */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* iOS 스타일 바텀시트 드래그 핸들 */
+.sheet-handle {
+  width: 36px;
+  height: 5px;
+  border-radius: 9999px;
+  background: rgba(60, 60, 67, 0.3);
+  margin: 8px auto 0;
+}
