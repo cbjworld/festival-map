@@ -482,14 +482,19 @@ export async function fetchFestivalsFromTourApi(
     .map(transformFestivalItem)
     .filter((f): f is Festival => f !== null);
 
-  // areaBasedList2로 보완 조회 (searchFestival2 페이지네이션 이후 남는 소수의 예외 케이스만 대상)
-  // 실패해도 기존 결과는 그대로 반환한다.
+  // areaBasedList2 보완 조회는 기본적으로 꺼둔다.
+  // detailIntro2가 매우 엄격한 초당 요청 제한에 걸려(순차 호출 + 1.1초 간격에도 재시도까지 실패),
+  // 매 요청마다 8~10초를 그냥 날리면서도 실제로는 0건 추가되는 상태였다.
+  // 필요하면 ENABLE_AREA_BASED_SUPPLEMENT=true 환경변수로 다시 켤 수 있다.
+  const supplementEnabled = process.env.ENABLE_AREA_BASED_SUPPLEMENT === "true";
   let supplementaryFestivals: Festival[] = [];
-  try {
-    const existingIds = new Set(primaryFestivals.map((f) => f.id));
-    supplementaryFestivals = await fetchSupplementaryFestivals(serviceKey, existingIds);
-  } catch (error) {
-    console.error("[tourapi] areaBasedList2 보완 조회 실패:", error);
+  if (supplementEnabled) {
+    try {
+      const existingIds = new Set(primaryFestivals.map((f) => f.id));
+      supplementaryFestivals = await fetchSupplementaryFestivals(serviceKey, existingIds);
+    } catch (error) {
+      console.error("[tourapi] areaBasedList2 보완 조회 실패:", error);
+    }
   }
 
   return [...primaryFestivals, ...supplementaryFestivals];
