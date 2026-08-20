@@ -47,8 +47,12 @@ function startOfToday(): Date {
 /**
  * 오늘 날짜 기준 축제 상태 계산
  * - ongoing: 시작일 <= 오늘 <= 종료일
- * - upcoming: 오늘 < 시작일 <= 오늘 + 14일
- * - ended: 그 외 (이미 종료됐거나 14일보다 먼 미래)
+ * - upcoming: 오늘 < 시작일 (며칠 뒤든 상관없이 아직 시작 전이면 전부 예정으로 처리)
+ * - ended: 종료일이 이미 지난 경우
+ *
+ * 예전엔 "오늘+14일 이내"만 upcoming으로 치고 그보다 먼 미래 축제는 ended로 분류했었는데,
+ * 그러면 몇 달 뒤 예정된 축제가 기본 화면(종료된 축제 숨김)에서 통째로 사라지는 문제가 있었다.
+ * (예: 10월 축제인데 8월엔 "이미 종료된" 축제처럼 취급되어 안 보임)
  */
 export function computeFestivalStatus(
   startRaw: string,
@@ -69,7 +73,7 @@ export function computeFestivalStatus(
     return { status: "ongoing", dDay };
   }
 
-  if (dDay > 0 && dDay <= 14) {
+  if (start.getTime() > today.getTime()) {
     return { status: "upcoming", dDay };
   }
 
