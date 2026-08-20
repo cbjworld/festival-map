@@ -154,15 +154,22 @@ export default function Home() {
   // 이 목록을 기준으로 통계(전체/진행중/개최예정)를 내면 세 숫자가 같은 지역·기간 범위를 가리키게 된다.
   const visibleFestivals = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+    const oneYearMs = 365 * 24 * 60 * 60 * 1000;
 
     return festivals.filter((festival) => {
-      if (!showEnded && festival.status === "ended") return false;
+      if (festival.status === "ended") {
+        // 종료된 지 1년 이내면 기본적으로 보여준다 (그보다 오래된 건 토글을 켜야 보임).
+        // "기간" 피커는 오늘 이후 일정을 좁히는 용도라, 이미 끝난 축제에는 적용하지 않는다.
+        const endedRecently = Date.now() - new Date(festival.endDate).getTime() <= oneYearMs;
+        if (!showEnded && !endedRecently) return false;
+      } else {
+        // 선택한 기간과 축제 진행 기간이 겹치는 경우만 표시
+        if (dateFrom && festival.endDate < dateFrom) return false;
+        if (dateTo && festival.startDate > dateTo) return false;
+      }
+
       if (showFavoritesOnly && !favorites.has(festival.id)) return false;
       if (region !== "all" && festival.region !== region) return false;
-
-      // 선택한 기간과 축제 진행 기간이 겹치는 경우만 표시
-      if (dateFrom && festival.endDate < dateFrom) return false;
-      if (dateTo && festival.startDate > dateTo) return false;
 
       if (query) {
         const haystack = `${festival.title} ${festival.addr}`.toLowerCase();
