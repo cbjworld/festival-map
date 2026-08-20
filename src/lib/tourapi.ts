@@ -244,6 +244,11 @@ async function fetchSupplementaryFestivals(
   const areaItems = await fetchAreaBasedFestivalItems(serviceKey);
   const missingItems = areaItems.filter((item) => !existingIds.has(item.contentid));
 
+  console.log(
+    `[tourapi] areaBasedList2 보완 조회: 전체 ${areaItems.length}건 중 ` +
+      `searchFestival2에 없는 ${missingItems.length}건 발견 (기존 ${existingIds.size}건)`,
+  );
+
   if (missingItems.length === 0) return [];
 
   // detailIntro2 호출량을 과도하게 늘리지 않도록 동시 처리 수를 제한한다.
@@ -274,6 +279,11 @@ async function fetchSupplementaryFestivals(
     );
     results.push(...batchResults.filter((f): f is Festival => f !== null));
   }
+
+  console.log(
+    `[tourapi] areaBasedList2 보완 조회 완료: ${missingItems.length}건 중 ` +
+      `기간 정보 확인 후 ${results.length}건 최종 추가`,
+  );
 
   return results;
 }
