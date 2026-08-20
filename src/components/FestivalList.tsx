@@ -291,7 +291,7 @@ export default function FestivalList({
             onClick={() => onShowEndedChange(!showEnded)}
             className="text-[12.5px] font-medium text-gray-400 underline decoration-gray-300 underline-offset-2"
           >
-            {showEnded ? "종료된 축제 숨기기" : "종료된 축제도 보기"}
+            {showEnded ? "1년 이상 지난 축제 숨기기" : "1년 이상 지난 축제도 보기"}
           </button>
           {onShowFavoritesOnlyChange && (
             <button
