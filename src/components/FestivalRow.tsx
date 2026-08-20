@@ -8,7 +8,10 @@ import type { Festival } from "@/types/festival";
 interface FestivalRowProps {
   festival: Festival;
   isSelected: boolean;
+  isHovered?: boolean;
   onClick: () => void;
+  onHoverStart?: () => void;
+  onHoverEnd?: () => void;
 }
 
 const DOT_COLOR: Record<Festival["status"], string> = {
@@ -28,23 +31,32 @@ function formatDDay(dDay: number, status: Festival["status"]): string {
 export default function FestivalRow({
   festival,
   isSelected,
+  isHovered,
   onClick,
+  onHoverStart,
+  onHoverEnd,
 }: FestivalRowProps) {
   return (
     <button
       onClick={onClick}
+      onMouseEnter={onHoverStart}
+      onMouseLeave={onHoverEnd}
       className={cn(
-        "flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors",
-        isSelected ? "bg-black/[0.05]" : "hover:bg-black/[0.03]",
+        "flex w-full items-center gap-3.5 rounded-2xl px-3.5 py-3 text-left transition-colors md:gap-3 md:px-3 md:py-2.5",
+        isSelected
+          ? "bg-black/[0.05]"
+          : isHovered
+            ? "bg-black/[0.035]"
+            : "hover:bg-black/[0.03]",
       )}
     >
-      <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-gray-100">
+      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-gray-100 md:h-14 md:w-14">
         {festival.image ? (
           <Image
             src={festival.image}
             alt=""
             fill
-            sizes="56px"
+            sizes="64px"
             className="object-cover"
             unoptimized
           />
@@ -57,19 +69,19 @@ export default function FestivalRow({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT_COLOR[festival.status])} />
-          <p className="truncate text-[14.5px] font-medium text-gray-900">
+          <span className={cn("h-2 w-2 shrink-0 rounded-full md:h-1.5 md:w-1.5", DOT_COLOR[festival.status])} />
+          <p className="truncate text-[16px] font-medium text-gray-900 md:text-[14.5px]">
             {festival.title}
           </p>
         </div>
-        <p className="mt-0.5 truncate text-[12.5px] text-gray-400">
+        <p className="mt-1 truncate text-[13.5px] text-gray-400 md:mt-0.5 md:text-[12.5px]">
           {festival.addr || "주소 정보 없음"}
         </p>
       </div>
 
       <span
         className={cn(
-          "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold",
+          "shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold md:text-[11px]",
           festival.status === "ongoing"
             ? "bg-green-50 text-green-600"
             : festival.status === "upcoming"

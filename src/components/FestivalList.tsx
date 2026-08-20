@@ -45,6 +45,9 @@ interface FestivalListProps {
 
   selectedFestivalId: string | null;
   onSelectFestival: (festival: Festival) => void;
+  /** 리스트 행에 커서를 올리면 지도의 해당 마커를 강조 표시 */
+  hoveredFestivalId?: string | null;
+  onHoverFestival?: (festivalId: string | null) => void;
 
   /** 모바일 풀스크린 시트로 쓰일 때만 전달 (닫기 버튼 표시) */
   onRequestClose?: () => void;
@@ -114,6 +117,8 @@ export default function FestivalList({
   onDateToChange,
   selectedFestivalId,
   onSelectFestival,
+  hoveredFestivalId,
+  onHoverFestival,
   onRequestClose,
 }: FestivalListProps) {
   const sections = useMemo(() => {
@@ -250,16 +255,19 @@ export default function FestivalList({
         ) : (
           sections.map((section) => (
             <div key={section.key} className="mb-2">
-              <p className="px-3 py-2 text-[12.5px] font-semibold text-gray-400">
+              <p className="px-3.5 py-2.5 text-[13.5px] font-semibold text-gray-400 md:px-3 md:py-2 md:text-[12.5px]">
                 {section.label} <span className="text-gray-300">{section.items.length}</span>
               </p>
-              <div className="space-y-0.5">
+              <div className="space-y-1 md:space-y-0.5">
                 {section.items.map((festival) => (
                   <FestivalRow
                     key={festival.id}
                     festival={festival}
                     isSelected={festival.id === selectedFestivalId}
+                    isHovered={festival.id === hoveredFestivalId}
                     onClick={() => onSelectFestival(festival)}
+                    onHoverStart={() => onHoverFestival?.(festival.id)}
+                    onHoverEnd={() => onHoverFestival?.(null)}
                   />
                 ))}
               </div>

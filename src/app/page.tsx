@@ -43,6 +43,10 @@ export default function Home() {
   const [selectedFestivalId, setSelectedFestivalId] = useState<string | null>(
     null,
   );
+  // 리스트에서 커서를 올린 축제 - 지도의 해당 마커를 강조 표시
+  const [hoveredFestivalId, setHoveredFestivalId] = useState<string | null>(
+    null,
+  );
   const [userLocation, setUserLocation] = useState<
     { lat: number; lng: number } | null
   >(null);
@@ -233,6 +237,8 @@ export default function Home() {
     onDateToChange: setDateTo,
     selectedFestivalId,
     onSelectFestival: handleSelectFestival,
+    hoveredFestivalId,
+    onHoverFestival: setHoveredFestivalId,
   };
 
   return (
@@ -248,6 +254,7 @@ export default function Home() {
           festivals={filteredFestivals}
           selectedFestivalId={selectedFestivalId}
           onSelectFestival={handleSelectFestival}
+          hoveredFestivalId={hoveredFestivalId}
           userLocation={userLocation}
           onMapClick={() => setSelectedFestivalId(null)}
           onReady={(controls) => {

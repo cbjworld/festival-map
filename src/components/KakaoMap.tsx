@@ -17,6 +17,8 @@ interface KakaoMapProps {
   festivals: Festival[];
   selectedFestivalId: string | null;
   onSelectFestival: (festival: Festival) => void;
+  /** 리스트에서 커서를 올린 축제 - 지도의 해당 마커를 강조 표시 */
+  hoveredFestivalId?: string | null;
   /** 사용자 현재 위치 (있으면 초기 중심으로 사용 + 위치 마커 표시) */
   userLocation?: { lat: number; lng: number } | null;
   /** 마커가 아닌 지도의 빈 영역을 클릭했을 때 (상세 카드 닫기 등에 사용) */
@@ -38,17 +40,27 @@ const USER_LOCATION_COLOR = "#007AFF";
 /**
  * 마커(CustomOverlay)에 들어갈 HTML 문자열을 생성한다.
  * - ongoing 상태는 pulse 애니메이션(아우라)이 붙은 마커
- * - selected 상태는 살짝 확대 + 테두리 강조
+ * - selected 상태는 크게 확대 + 흰색/상태색 테두리 강조
+ * - hovered 상태(리스트에서 커서를 올린 경우)는 살짝 확대 + 파란 테두리로 은은하게 강조
  */
-function buildMarkerHtml(festival: Festival, isSelected: boolean): string {
+function buildMarkerHtml(
+  festival: Festival,
+  isSelected: boolean,
+  isHovered = false,
+): string {
   const color = STATUS_COLOR[festival.status];
-  const scale = isSelected ? 1.25 : 1;
+  const scale = isSelected ? 1.25 : isHovered ? 1.15 : 1;
   const pulse =
     festival.status === "ongoing"
       ? `<span class="festival-marker-pulse" style="background:${color};"></span>`
       : "";
 
-  const ring = isSelected ? "0 0 0 3px rgba(255,255,255,0.9), 0 0 0 5px " + color : "0 2px 6px rgba(0,0,0,0.35)";
+  let ring = "0 2px 6px rgba(0,0,0,0.35)";
+  if (isSelected) {
+    ring = "0 0 0 3px rgba(255,255,255,0.9), 0 0 0 5px " + color;
+  } else if (isHovered) {
+    ring = "0 0 0 3px rgba(255,255,255,0.9), 0 0 0 5px rgba(0,122,255,0.65)";
+  }
 
   return `
     <div class="festival-marker-wrap" style="transform: scale(${scale});">
@@ -108,6 +120,7 @@ export default function KakaoMap({
   festivals,
   selectedFestivalId,
   onSelectFestival,
+  hoveredFestivalId,
   userLocation,
   onMapClick,
   onReady,
@@ -203,6 +216,7 @@ export default function KakaoMap({
     // 신규/갱신 마커 반영 (기존 마커는 제거 후 재생성하여 최신 상태 반영)
     festivals.forEach((festival) => {
       const isSelected = festival.id === selectedFestivalId;
+      const isHovered = festival.id === hoveredFestivalId;
       const existing = overlaysRef.current.get(festival.id);
       if (existing) {
         existing.setMap(null);
@@ -210,8 +224,8 @@ export default function KakaoMap({
       }
 
       const wrapper = document.createElement("div");
-      wrapper.innerHTML = buildMarkerHtml(festival, isSelected);
-      wrapper.style.zIndex = isSelected ? "10" : "1";
+      wrapper.innerHTML = buildMarkerHtml(festival, isSelected, isHovered);
+      wrapper.style.zIndex = isSelected ? "10" : isHovered ? "5" : "1";
       wrapper.addEventListener("click", (e) => {
         // 지도 클릭 이벤트(빈 공간 클릭 = 카드 닫기)로 전파되지 않도록 차단
         e.stopPropagation();
@@ -233,14 +247,30 @@ export default function KakaoMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [festivals, isMapReady]);
 
-  // 선택된 마커가 바뀌면 해당 마커만 다시 그려 강조 표시
+  // 선택/호버된 마커가 바뀔 때, 영향받는 마커(이전 값 + 새 값)만 다시 그려 강조 표시
+  const prevSelectedRef = useRef<string | null>(null);
+  const prevHoveredRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!isMapReady) return;
-    overlaysRef.current.forEach((overlay, id) => {
+    if (!isMapReady || !mapRef.current) return;
+    const map = mapRef.current;
+
+    const idsToRefresh = new Set<string>();
+    if (prevSelectedRef.current) idsToRefresh.add(prevSelectedRef.current);
+    if (selectedFestivalId) idsToRefresh.add(selectedFestivalId);
+    if (prevHoveredRef.current) idsToRefresh.add(prevHoveredRef.current);
+    if (hoveredFestivalId) idsToRefresh.add(hoveredFestivalId);
+
+    idsToRefresh.forEach((id) => {
+      const overlay = overlaysRef.current.get(id);
       const festival = festivals.find((f) => f.id === id);
-      if (!festival) return;
+      if (!overlay || !festival) return;
+
+      const isSelected = id === selectedFestivalId;
+      const isHovered = id === hoveredFestivalId;
+
       const wrapper = document.createElement("div");
-      wrapper.innerHTML = buildMarkerHtml(festival, id === selectedFestivalId);
+      wrapper.innerHTML = buildMarkerHtml(festival, isSelected, isHovered);
       wrapper.addEventListener("click", (e) => {
         e.stopPropagation();
         onSelectFestival(festival);
@@ -250,17 +280,20 @@ export default function KakaoMap({
       const newOverlay = new window.kakao.maps.CustomOverlay({
         position: new window.kakao.maps.LatLng(festival.lat, festival.lng),
         content: wrapper,
-        map: mapRef.current!,
+        map,
         yAnchor: 0.5,
         xAnchor: 0.5,
-        zIndex: id === selectedFestivalId ? 10 : 1,
+        zIndex: isSelected ? 10 : isHovered ? 5 : 1,
         clickable: true,
       });
       overlaysRef.current.set(id, newOverlay);
     });
-    // 선택 변경시에만 실행 (festivals 변경은 위 effect에서 별도 처리)
+
+    prevSelectedRef.current = selectedFestivalId;
+    prevHoveredRef.current = hoveredFestivalId ?? null;
+    // festivals 자체 변경은 위쪽 전체 동기화 effect에서 처리하므로 의도적으로 제외
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFestivalId]);
+  }, [selectedFestivalId, hoveredFestivalId, isMapReady]);
 
   // 선택된 축제로 지도 중심 이동
   useEffect(() => {
