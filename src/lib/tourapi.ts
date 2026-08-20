@@ -206,6 +206,10 @@ async function fetchAreaBasedFestivalItems(
   return Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
 }
 
+// 원인 파악을 위해 detailIntro2 실패/이상 응답 로그를 앞의 몇 건만 자세히 남긴다.
+let debugLogCount = 0;
+const MAX_DEBUG_LOGS = 5;
+
 /** detailIntro2로 특정 축제(contentId)의 행사 시작/종료일을 조회한다 */
 async function fetchFestivalEventDates(
   serviceKey: string,
@@ -220,14 +224,43 @@ async function fetchFestivalEventDates(
   const requestUrl = `${DETAIL_INTRO_URL}?${params.toString()}`;
   try {
     const res = await fetch(requestUrl, { next: { revalidate: 3600 } });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (debugLogCount < MAX_DEBUG_LOGS) {
+        debugLogCount++;
+        const bodyText = await res.text().catch(() => "(본문을 읽을 수 없음)");
+        console.error(
+          `[tourapi] detailIntro2 응답 실패 (contentId: ${contentId}) - status: ${res.status}\n응답 본문: ${bodyText}`,
+        );
+      }
+      return null;
+    }
     const data = (await res.json()) as TourApiResponse<TourApiFestivalIntroItem>;
-    if (data.response.header.resultCode !== "0000") return null;
+    if (data.response.header.resultCode !== "0000") {
+      if (debugLogCount < MAX_DEBUG_LOGS) {
+        debugLogCount++;
+        console.error(
+          `[tourapi] detailIntro2 오류 (contentId: ${contentId}): ` +
+            `${data.response.header.resultCode} - ${data.response.header.resultMsg}`,
+        );
+      }
+      return null;
+    }
     const rawItems = data.response.body.items.item;
     const item = Array.isArray(rawItems) ? rawItems[0] : rawItems || null;
+
+    if (debugLogCount < MAX_DEBUG_LOGS) {
+      debugLogCount++;
+      console.log(
+        `[tourapi] detailIntro2 원본 응답 (contentId: ${contentId}): ${JSON.stringify(item)}`,
+      );
+    }
+
     return item || null;
   } catch (error) {
-    console.error(`[tourapi] detailIntro2 요청 실패 (contentId: ${contentId}):`, error);
+    if (debugLogCount < MAX_DEBUG_LOGS) {
+      debugLogCount++;
+      console.error(`[tourapi] detailIntro2 요청 실패 (contentId: ${contentId}):`, error);
+    }
     return null;
   }
 }
@@ -241,6 +274,7 @@ async function fetchSupplementaryFestivals(
   serviceKey: string,
   existingIds: Set<string>,
 ): Promise<Festival[]> {
+  debugLogCount = 0;
   const areaItems = await fetchAreaBasedFestivalItems(serviceKey);
   const missingItems = areaItems.filter((item) => !existingIds.has(item.contentid));
 
