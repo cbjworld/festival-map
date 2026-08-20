@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { Loader2, List, MapPin } from "lucide-react";
+import { Loader2, List, LocateFixed, MapPin } from "lucide-react";
 import type { Festival, RegionFilter, StatusFilter } from "@/types/festival";
 import FestivalDetailCard from "@/components/FestivalDetailCard";
 import FestivalList from "@/components/FestivalList";
+import type { KakaoMapControls } from "@/components/KakaoMap";
+import { REGION_CENTERS } from "@/lib/regionCenters";
 
 // 카카오맵은 브라우저 전역(window.kakao)에 의존하므로 SSR 비활성화
 const KakaoMap = dynamic(() => import("@/components/KakaoMap"), {
@@ -17,6 +19,13 @@ const KakaoMap = dynamic(() => import("@/components/KakaoMap"), {
   ),
 });
 
+/** Date -> "YYYY-MM-DD" (date input value 포맷) */
+function formatDateInput(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+}
+
 export default function Home() {
   const [festivals, setFestivals] = useState<Festival[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -26,6 +35,7 @@ export default function Home() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [showEnded, setShowEnded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // 기본 기간: 오늘 ~ 한 달 후 (초기값은 SSR/CSR 불일치를 피하기 위해 마운트 후 채운다)
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isMobileListOpen, setIsMobileListOpen] = useState(false);
@@ -39,6 +49,8 @@ export default function Home() {
 
   // 카카오톡 공유 링크(?festivalId=...)로 들어왔을 때 한 번만 적용하기 위한 플래그
   const hasAppliedSharedLinkRef = useRef(false);
+  // 지도 제어 함수(panTo 등) - KakaoMap이 준비되면 채워진다
+  const mapControlsRef = useRef<KakaoMapControls | null>(null);
 
   // 축제 데이터 로드 (API Route -> TourAPI, 1시간 캐시)
   useEffect(() => {
@@ -72,6 +84,15 @@ export default function Home() {
     };
   }, []);
 
+  // 기본 기간(오늘 ~ 한 달 후) 세팅 - 마운트 후 클라이언트에서만 계산
+  useEffect(() => {
+    const today = new Date();
+    const oneMonthLater = new Date(today);
+    oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
+    setDateFrom(formatDateInput(today));
+    setDateTo(formatDateInput(oneMonthLater));
+  }, []);
+
   // 카카오톡 "공유하기"로 받은 링크(?festivalId=...)로 들어온 경우,
   // 축제 데이터가 로드되자마자 해당 축제를 자동으로 선택해서 상세 카드를 띄운다.
   useEffect(() => {
@@ -101,8 +122,8 @@ export default function Home() {
     window.history.replaceState(null, "", window.location.pathname);
   }, [festivals]);
 
-  // 사용자 위치 동의 요청 (실패해도 기본 중심 좌표 사용)
-  useEffect(() => {
+  // 사용자 위치 요청 (최초 진입 시 자동 1회 + "내 위치로 이동" 버튼에서 재사용)
+  const requestUserLocation = useCallback(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -117,6 +138,10 @@ export default function Home() {
       { timeout: 5000 },
     );
   }, []);
+
+  useEffect(() => {
+    requestUserLocation();
+  }, [requestUserLocation]);
 
   const filteredFestivals = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -161,13 +186,41 @@ export default function Home() {
     setIsMobileListOpen(false);
   }
 
+  // 지역 버튼 선택 -> 해당 지역으로 지도 이동 (전국 선택 시 현재 내 위치로 이동)
+  function handleRegionSelect(nextRegion: RegionFilter) {
+    setRegion(nextRegion);
+
+    if (nextRegion === "all") {
+      if (userLocation) {
+        mapControlsRef.current?.panTo(userLocation.lat, userLocation.lng, 7);
+      } else {
+        requestUserLocation();
+      }
+      return;
+    }
+
+    const center = REGION_CENTERS[nextRegion];
+    if (center) {
+      mapControlsRef.current?.panTo(center.lat, center.lng, center.level);
+    }
+  }
+
+  // "내 위치로 이동" 버튼
+  function handleLocateMe() {
+    if (userLocation) {
+      mapControlsRef.current?.panTo(userLocation.lat, userLocation.lng, 7);
+    } else {
+      requestUserLocation();
+    }
+  }
+
   const listProps = {
     festivals: filteredFestivals,
     totalCount: filteredFestivals.length,
     ongoingCount,
     upcomingCount,
     region,
-    onRegionChange: setRegion,
+    onRegionChange: handleRegionSelect,
     statusFilter,
     onStatusFilterChange: setStatusFilter,
     showEnded,
@@ -196,6 +249,10 @@ export default function Home() {
           selectedFestivalId={selectedFestivalId}
           onSelectFestival={handleSelectFestival}
           userLocation={userLocation}
+          onMapClick={() => setSelectedFestivalId(null)}
+          onReady={(controls) => {
+            mapControlsRef.current = controls;
+          }}
         />
 
         {/* 모바일 전용 상단 플로팅 바 */}
@@ -207,6 +264,15 @@ export default function Home() {
             진행 중 <span className="font-semibold text-green-600">{ongoingCount}</span>
           </span>
         </div>
+
+        {/* 내 위치로 이동 버튼 */}
+        <button
+          onClick={handleLocateMe}
+          aria-label="현재 위치로 이동"
+          className="pointer-events-auto absolute bottom-24 right-4 z-20 flex h-12 w-12 items-center justify-center rounded-full border border-white/60 bg-white/85 text-gray-700 shadow-[0_8px_24px_rgba(0,0,0,0.15)] backdrop-blur-xl transition-transform active:scale-95 md:bottom-6"
+        >
+          <LocateFixed className="h-5 w-5" strokeWidth={2.25} />
+        </button>
 
         {/* 모바일 전용 "목록" 버튼 */}
         <button

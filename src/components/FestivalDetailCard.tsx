@@ -1,9 +1,13 @@
 "use client";
 
+import { useState, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import Image from "next/image";
 import { MapPin, Navigation, Share2, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Festival } from "@/types/festival";
+
+/** 아래로 이만큼(px) 이상 드래그하면 놓았을 때 카드를 닫는다 */
+const DRAG_CLOSE_THRESHOLD = 80;
 
 interface FestivalDetailCardProps {
   festival: Festival;
@@ -85,6 +89,31 @@ export default function FestivalDetailCard({
 }: FestivalDetailCardProps) {
   const badge = STATUS_BADGE[festival.status];
 
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartYRef = useRef(0);
+
+  function handleHandlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    setIsDragging(true);
+    dragStartYRef.current = e.clientY;
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handleHandlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!isDragging) return;
+    const delta = e.clientY - dragStartYRef.current;
+    if (delta > 0) setDragOffset(delta);
+  }
+
+  function handleHandlePointerUp() {
+    if (!isDragging) return;
+    setIsDragging(false);
+    if (dragOffset > DRAG_CLOSE_THRESHOLD) {
+      onClose();
+    }
+    setDragOffset(0);
+  }
+
   return (
     <div
       className={cn(
@@ -92,9 +121,22 @@ export default function FestivalDetailCard({
         "fixed inset-x-0 bottom-0 z-30 max-h-[75vh] overflow-y-auto rounded-t-[28px] border border-white/60 bg-white/85 shadow-[0_-8px_40px_rgba(0,0,0,0.16)] backdrop-blur-2xl animate-in slide-in-from-bottom duration-300",
         "md:absolute md:inset-auto md:left-5 md:top-5 md:bottom-auto md:right-auto md:w-[380px] md:max-h-[calc(100%-2.5rem)] md:rounded-[28px] md:border md:shadow-[0_8px_40px_rgba(0,0,0,0.14)] md:slide-in-from-left",
       )}
+      style={{
+        transform: dragOffset ? `translateY(${dragOffset}px)` : undefined,
+        transition: isDragging ? "none" : undefined,
+      }}
     >
-      {/* 모바일 전용 드래그 핸들 */}
-      <div className="sheet-handle md:hidden" />
+      {/* 모바일 전용 드래그 핸들: 탭하면 바로 닫히고, 아래로 드래그해도 닫힌다 */}
+      <div
+        className="cursor-grab touch-none pb-1 pt-2 md:hidden"
+        onClick={onClose}
+        onPointerDown={handleHandlePointerDown}
+        onPointerMove={handleHandlePointerMove}
+        onPointerUp={handleHandlePointerUp}
+        onPointerCancel={handleHandlePointerUp}
+      >
+        <div className="sheet-handle" />
+      </div>
 
       <button
         onClick={onClose}
