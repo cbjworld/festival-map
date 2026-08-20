@@ -222,47 +222,68 @@ async function fetchFestivalEventDates(
   });
 
   const requestUrl = `${DETAIL_INTRO_URL}?${params.toString()}`;
-  try {
-    const res = await fetch(requestUrl, { next: { revalidate: 3600 } });
-    if (!res.ok) {
+
+  // TourAPI는 "초당 요청 제한"이 있어(LIMITED_NUMBER_OF_SERVICE_REQUESTS_PER_SECOND_EXCEEDS_ERROR,
+  // HTTP 429) 짧은 시간에 몰아서 호출하면 실패한다. 429를 받으면 잠깐 쉬었다가 최대 2번 더 재시도한다.
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(requestUrl, { next: { revalidate: 3600 } });
+
+      if (res.status === 429) {
+        if (attempt < MAX_RETRIES) {
+          await sleep(600 * (attempt + 1));
+          continue;
+        }
+        if (debugLogCount < MAX_DEBUG_LOGS) {
+          debugLogCount++;
+          console.error(
+            `[tourapi] detailIntro2 재시도 초과 (contentId: ${contentId}) - 초당 요청 제한 지속`,
+          );
+        }
+        return null;
+      }
+
+      if (!res.ok) {
+        if (debugLogCount < MAX_DEBUG_LOGS) {
+          debugLogCount++;
+          const bodyText = await res.text().catch(() => "(본문을 읽을 수 없음)");
+          console.error(
+            `[tourapi] detailIntro2 응답 실패 (contentId: ${contentId}) - status: ${res.status}\n응답 본문: ${bodyText}`,
+          );
+        }
+        return null;
+      }
+
+      const data = (await res.json()) as TourApiResponse<TourApiFestivalIntroItem>;
+      if (data.response.header.resultCode !== "0000") {
+        if (debugLogCount < MAX_DEBUG_LOGS) {
+          debugLogCount++;
+          console.error(
+            `[tourapi] detailIntro2 오류 (contentId: ${contentId}): ` +
+              `${data.response.header.resultCode} - ${data.response.header.resultMsg}`,
+          );
+        }
+        return null;
+      }
+
+      const rawItems = data.response.body.items.item;
+      const item = Array.isArray(rawItems) ? rawItems[0] : rawItems || null;
+      return item || null;
+    } catch (error) {
       if (debugLogCount < MAX_DEBUG_LOGS) {
         debugLogCount++;
-        const bodyText = await res.text().catch(() => "(본문을 읽을 수 없음)");
-        console.error(
-          `[tourapi] detailIntro2 응답 실패 (contentId: ${contentId}) - status: ${res.status}\n응답 본문: ${bodyText}`,
-        );
+        console.error(`[tourapi] detailIntro2 요청 실패 (contentId: ${contentId}):`, error);
       }
       return null;
     }
-    const data = (await res.json()) as TourApiResponse<TourApiFestivalIntroItem>;
-    if (data.response.header.resultCode !== "0000") {
-      if (debugLogCount < MAX_DEBUG_LOGS) {
-        debugLogCount++;
-        console.error(
-          `[tourapi] detailIntro2 오류 (contentId: ${contentId}): ` +
-            `${data.response.header.resultCode} - ${data.response.header.resultMsg}`,
-        );
-      }
-      return null;
-    }
-    const rawItems = data.response.body.items.item;
-    const item = Array.isArray(rawItems) ? rawItems[0] : rawItems || null;
-
-    if (debugLogCount < MAX_DEBUG_LOGS) {
-      debugLogCount++;
-      console.log(
-        `[tourapi] detailIntro2 원본 응답 (contentId: ${contentId}): ${JSON.stringify(item)}`,
-      );
-    }
-
-    return item || null;
-  } catch (error) {
-    if (debugLogCount < MAX_DEBUG_LOGS) {
-      debugLogCount++;
-      console.error(`[tourapi] detailIntro2 요청 실패 (contentId: ${contentId}):`, error);
-    }
-    return null;
   }
+
+  return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -285,11 +306,24 @@ async function fetchSupplementaryFestivals(
 
   if (missingItems.length === 0) return [];
 
-  // detailIntro2 호출량을 과도하게 늘리지 않도록 동시 처리 수를 제한한다.
-  const CONCURRENCY = 5;
+  // detailIntro2는 초당 요청 제한이 있어 동시 처리 수를 낮게, 배치 사이에 간격을 둔다.
+  const CONCURRENCY = 3;
+  const BATCH_DELAY_MS = 350;
+  // 서버리스 요청 시간 제한(및 사용자 체감 속도)을 고려해 한 번에 처리할 시간 예산을 둔다.
+  // 예산을 넘기면 남은 건은 건너뛰고, 이미 성공한 항목(fetch 캐시)은 다음 재검증(1시간) 때
+  // 즉시 캐시로 응답되므로 시간이 새 항목 쪽으로 자연히 배분되어 점점 더 많이 채워진다.
+  const TIME_BUDGET_MS = 8000;
+  const startedAt = Date.now();
+
   const results: Festival[] = [];
+  let skippedByBudget = 0;
 
   for (let i = 0; i < missingItems.length; i += CONCURRENCY) {
+    if (Date.now() - startedAt > TIME_BUDGET_MS) {
+      skippedByBudget = missingItems.length - i;
+      break;
+    }
+
     const batch = missingItems.slice(i, i + CONCURRENCY);
     const batchResults = await Promise.all(
       batch.map(async (item) => {
@@ -312,11 +346,16 @@ async function fetchSupplementaryFestivals(
       }),
     );
     results.push(...batchResults.filter((f): f is Festival => f !== null));
+
+    if (i + CONCURRENCY < missingItems.length) {
+      await sleep(BATCH_DELAY_MS);
+    }
   }
 
   console.log(
     `[tourapi] areaBasedList2 보완 조회 완료: ${missingItems.length}건 중 ` +
-      `기간 정보 확인 후 ${results.length}건 최종 추가`,
+      `기간 정보 확인 후 ${results.length}건 최종 추가` +
+      (skippedByBudget > 0 ? ` (시간 예산 초과로 ${skippedByBudget}건은 이번 조회에서 건너뜀)` : ""),
   );
 
   return results;
