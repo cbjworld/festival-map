@@ -74,7 +74,7 @@ export type RegionFilter =
   | "jeju";
 
 /** 상태 필터 옵션 */
-export type StatusFilter = "all" | "ongoing" | "thisWeek";
+export type StatusFilter = "all" | "ongoing" | "upcoming";
 
 /**
  * 앱 내부에서 사용하는 정규화된 축제 객체

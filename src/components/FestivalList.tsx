@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { Search, X } from "lucide-react";
-import { SegmentedControl } from "@/components/ui/segmented-control";
+import { cn } from "@/lib/utils";
 import FestivalRow from "@/components/FestivalRow";
 import type { Festival, RegionFilter, StatusFilter } from "@/types/festival";
 import { REGION_LABELS } from "@/types/festival";
@@ -21,7 +21,7 @@ const REGION_OPTIONS: RegionFilter[] = [
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "전체" },
   { value: "ongoing", label: "진행 중" },
-  { value: "thisWeek", label: "이번 주 시작" },
+  { value: "upcoming", label: "예정" },
 ];
 
 interface FestivalListProps {
@@ -38,6 +38,10 @@ interface FestivalListProps {
   onShowEndedChange: (show: boolean) => void;
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
+  dateFrom: string;
+  onDateFromChange: (date: string) => void;
+  dateTo: string;
+  onDateToChange: (date: string) => void;
 
   selectedFestivalId: string | null;
   onSelectFestival: (festival: Festival) => void;
@@ -53,6 +57,36 @@ function StatTile({ label, value }: { label: string; value: number }) {
         {value}
       </span>
       <span className="mt-0.5 text-[11.5px] text-gray-400">{label}</span>
+    </div>
+  );
+}
+
+/** 버튼식 필터 그룹 (지역/상태 공통) */
+function FilterButtonGroup<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          className={cn(
+            "rounded-xl px-3.5 py-2 text-[13.5px] font-medium transition-colors",
+            value === option.value
+              ? "bg-gray-900 text-white"
+              : "bg-black/[0.04] text-gray-600 hover:bg-black/[0.08]",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -74,6 +108,10 @@ export default function FestivalList({
   onShowEndedChange,
   searchQuery,
   onSearchQueryChange,
+  dateFrom,
+  onDateFromChange,
+  dateTo,
+  onDateToChange,
   selectedFestivalId,
   onSelectFestival,
   onRequestClose,
@@ -102,13 +140,15 @@ export default function FestivalList({
     ].filter((section) => section.items.length > 0);
   }, [festivals]);
 
+  const hasDateFilter = Boolean(dateFrom || dateTo);
+
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0 space-y-4 p-5 pb-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-[22px] font-semibold tracking-tight text-gray-900">
-              전국 축제
+              전국 축제 지도
             </h1>
             <p className="text-[13px] text-gray-400">한국관광공사 축제 정보</p>
           </div>
@@ -144,19 +184,53 @@ export default function FestivalList({
           <StatTile label="전체" value={totalCount} />
         </div>
 
-        <SegmentedControl
-          scrollable
-          options={REGION_OPTIONS.map((r) => ({ value: r, label: REGION_LABELS[r] }))}
-          value={region}
-          onChange={onRegionChange}
-        />
+        <div>
+          <p className="mb-2 text-[13px] font-medium text-gray-500">지역</p>
+          <FilterButtonGroup
+            options={REGION_OPTIONS.map((r) => ({ value: r, label: REGION_LABELS[r] }))}
+            value={region}
+            onChange={onRegionChange}
+          />
+        </div>
 
-        <div className="flex items-center justify-between gap-2">
-          <SegmentedControl
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[13px] font-medium text-gray-500">기간</p>
+            {hasDateFilter && (
+              <button
+                onClick={() => {
+                  onDateFromChange("");
+                  onDateToChange("");
+                }}
+                className="text-[12px] font-medium text-gray-400 underline decoration-gray-300 underline-offset-2"
+              >
+                초기화
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => onDateFromChange(e.target.value)}
+              className="min-w-0 flex-1 rounded-xl bg-black/[0.04] px-3 py-2 text-[13.5px] text-gray-900 outline-none"
+            />
+            <span className="shrink-0 text-gray-300">~</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => onDateToChange(e.target.value)}
+              className="min-w-0 flex-1 rounded-xl bg-black/[0.04] px-3 py-2 text-[13.5px] text-gray-900 outline-none"
+            />
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-2 text-[13px] font-medium text-gray-500">상태</p>
+          <FilterButtonGroup
             options={STATUS_OPTIONS}
             value={statusFilter}
             onChange={onStatusFilterChange}
-            className="flex-1"
           />
         </div>
 
