@@ -2,7 +2,7 @@
 
 import { useState, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import Image from "next/image";
-import { MapPin, Navigation, Share2, Sparkles, X } from "lucide-react";
+import { Heart, MapPin, Navigation, Share2, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Festival } from "@/types/festival";
 
@@ -12,6 +12,8 @@ const DRAG_CLOSE_THRESHOLD = 80;
 interface FestivalDetailCardProps {
   festival: Festival;
   onClose: () => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: () => void;
 }
 
 /** 상태별 뱃지 스타일/라벨 (점 인디케이터 + 텍스트) */
@@ -86,6 +88,8 @@ function openKakaoMapDirections(festival: Festival) {
 export default function FestivalDetailCard({
   festival,
   onClose,
+  isFavorite,
+  onToggleFavorite,
 }: FestivalDetailCardProps) {
   const badge = STATUS_BADGE[festival.status];
 
@@ -138,13 +142,27 @@ export default function FestivalDetailCard({
         <div className="sheet-handle" />
       </div>
 
-      <button
-        onClick={onClose}
-        className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.06] text-gray-600 backdrop-blur-md transition-colors hover:bg-black/10"
-        aria-label="닫기"
-      >
-        <X className="h-4 w-4" strokeWidth={2.5} />
-      </button>
+      <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
+        {onToggleFavorite && (
+          <button
+            onClick={onToggleFavorite}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.06] text-gray-600 backdrop-blur-md transition-colors hover:bg-black/10"
+            aria-label={isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+          >
+            <Heart
+              className={cn("h-4 w-4", isFavorite ? "fill-red-500 text-red-500" : "")}
+              strokeWidth={2.5}
+            />
+          </button>
+        )}
+        <button
+          onClick={onClose}
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.06] text-gray-600 backdrop-blur-md transition-colors hover:bg-black/10"
+          aria-label="닫기"
+        >
+          <X className="h-4 w-4" strokeWidth={2.5} />
+        </button>
+      </div>
 
       <div className="relative h-48 w-full overflow-hidden bg-gray-100 md:rounded-t-[28px]">
         {festival.image ? (

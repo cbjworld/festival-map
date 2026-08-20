@@ -8,6 +8,7 @@ import FestivalDetailCard from "@/components/FestivalDetailCard";
 import FestivalList from "@/components/FestivalList";
 import type { KakaoMapControls } from "@/components/KakaoMap";
 import { REGION_CENTERS } from "@/lib/regionCenters";
+import { useFavorites } from "@/hooks/useFavorites";
 
 // 카카오맵은 브라우저 전역(window.kakao)에 의존하므로 SSR 비활성화
 const KakaoMap = dynamic(() => import("@/components/KakaoMap"), {
@@ -34,7 +35,9 @@ export default function Home() {
   const [region, setRegion] = useState<RegionFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [showEnded, setShowEnded] = useState(false);
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const { favorites, toggleFavorite, isFavorite } = useFavorites();
   // 기본 기간: 오늘 ~ 한 달 후 (초기값은 SSR/CSR 불일치를 피하기 위해 마운트 후 채운다)
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -154,6 +157,7 @@ export default function Home() {
 
     return festivals.filter((festival) => {
       if (!showEnded && festival.status === "ended") return false;
+      if (showFavoritesOnly && !favorites.has(festival.id)) return false;
       if (region !== "all" && festival.region !== region) return false;
 
       // 선택한 기간과 축제 진행 기간이 겹치는 경우만 표시
@@ -167,7 +171,7 @@ export default function Home() {
 
       return true;
     });
-  }, [festivals, region, showEnded, searchQuery, dateFrom, dateTo]);
+  }, [festivals, region, showEnded, showFavoritesOnly, favorites, searchQuery, dateFrom, dateTo]);
 
   // 실제로 지도/목록에 그리는 대상: 위 visibleFestivals에 상태 필터까지 마저 적용
   const filteredFestivals = useMemo(() => {
@@ -233,6 +237,10 @@ export default function Home() {
     onStatusFilterChange: setStatusFilter,
     showEnded,
     onShowEndedChange: setShowEnded,
+    favorites,
+    onToggleFavorite: toggleFavorite,
+    showFavoritesOnly,
+    onShowFavoritesOnlyChange: setShowFavoritesOnly,
     searchQuery,
     onSearchQueryChange: setSearchQuery,
     dateFrom,
@@ -315,6 +323,8 @@ export default function Home() {
           <FestivalDetailCard
             festival={selectedFestival}
             onClose={() => setSelectedFestivalId(null)}
+            isFavorite={isFavorite(selectedFestival.id)}
+            onToggleFavorite={() => toggleFavorite(selectedFestival.id)}
           />
         )}
       </div>

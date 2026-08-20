@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { MapPin } from "lucide-react";
+import { Heart, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Festival } from "@/types/festival";
 
@@ -9,9 +9,11 @@ interface FestivalRowProps {
   festival: Festival;
   isSelected: boolean;
   isHovered?: boolean;
+  isFavorite?: boolean;
   onClick: () => void;
   onHoverStart?: () => void;
   onHoverEnd?: () => void;
+  onToggleFavorite?: () => void;
 }
 
 const DOT_COLOR: Record<Festival["status"], string> = {
@@ -32,9 +34,11 @@ export default function FestivalRow({
   festival,
   isSelected,
   isHovered,
+  isFavorite,
   onClick,
   onHoverStart,
   onHoverEnd,
+  onToggleFavorite,
 }: FestivalRowProps) {
   return (
     <button
@@ -64,6 +68,30 @@ export default function FestivalRow({
           <div className="flex h-full w-full items-center justify-center text-gray-300">
             <MapPin className="h-5 w-5" />
           </div>
+        )}
+        {onToggleFavorite && (
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleFavorite();
+              }
+            }}
+            className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm"
+          >
+            <Heart
+              className={cn("h-3 w-3", isFavorite ? "fill-red-500 text-red-500" : "text-white")}
+              strokeWidth={2.5}
+            />
+          </span>
         )}
       </div>
 

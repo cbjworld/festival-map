@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { Search, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Heart, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import FestivalRow from "@/components/FestivalRow";
 import type { Festival, RegionFilter, StatusFilter } from "@/types/festival";
@@ -48,6 +48,12 @@ interface FestivalListProps {
   /** 리스트 행에 커서를 올리면 지도의 해당 마커를 강조 표시 */
   hoveredFestivalId?: string | null;
   onHoverFestival?: (festivalId: string | null) => void;
+
+  /** 즐겨찾기 (localStorage 기반) */
+  favorites?: Set<string>;
+  onToggleFavorite?: (festivalId: string) => void;
+  showFavoritesOnly?: boolean;
+  onShowFavoritesOnlyChange?: (show: boolean) => void;
 
   /** 모바일 풀스크린 시트로 쓰일 때만 전달 (닫기 버튼 표시) */
   onRequestClose?: () => void;
@@ -119,8 +125,22 @@ export default function FestivalList({
   onSelectFestival,
   hoveredFestivalId,
   onHoverFestival,
+  favorites,
+  onToggleFavorite,
+  showFavoritesOnly,
+  onShowFavoritesOnlyChange,
   onRequestClose,
 }: FestivalListProps) {
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+  // 검색창 자동완성: 현재 목록(필터 적용된) 안에서 제목이 일치하는 축제를 최대 6개 추천
+  const suggestions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return festivals.filter((f) => f.title.toLowerCase().includes(q)).slice(0, 6);
+  }, [festivals, searchQuery]);
+  const showSuggestions = isSearchFocused && searchQuery.trim().length > 0 && suggestions.length > 0;
+
   const sections = useMemo(() => {
     const today = new Date();
     const daysUntil = (dateStr: string) => {
@@ -168,18 +188,45 @@ export default function FestivalList({
           )}
         </div>
 
-        <div className="flex items-center gap-2 rounded-2xl bg-black/[0.04] px-3.5 py-2.5">
-          <Search className="h-4 w-4 shrink-0 text-gray-400" strokeWidth={2.25} />
-          <input
-            value={searchQuery}
-            onChange={(e) => onSearchQueryChange(e.target.value)}
-            placeholder="축제 이름 또는 장소 검색"
-            className="w-full bg-transparent text-[14.5px] text-gray-900 outline-none placeholder:text-gray-400"
-          />
-          {searchQuery && (
-            <button onClick={() => onSearchQueryChange("")} aria-label="검색어 지우기">
-              <X className="h-3.5 w-3.5 text-gray-400" />
-            </button>
+        <div className="relative">
+          <div className="flex items-center gap-2 rounded-2xl bg-black/[0.04] px-3.5 py-2.5">
+            <Search className="h-4 w-4 shrink-0 text-gray-400" strokeWidth={2.25} />
+            <input
+              value={searchQuery}
+              onChange={(e) => onSearchQueryChange(e.target.value)}
+              onFocus={() => setIsSearchFocused(true)}
+              // 자동완성 항목 클릭이 먼저 처리되도록 blur를 살짝 지연시킨다
+              onBlur={() => setTimeout(() => setIsSearchFocused(false), 120)}
+              placeholder="축제 이름 또는 장소 검색"
+              className="w-full bg-transparent text-[14.5px] text-gray-900 outline-none placeholder:text-gray-400"
+            />
+            {searchQuery && (
+              <button onClick={() => onSearchQueryChange("")} aria-label="검색어 지우기">
+                <X className="h-3.5 w-3.5 text-gray-400" />
+              </button>
+            )}
+          </div>
+
+          {showSuggestions && (
+            <div className="absolute inset-x-0 top-[calc(100%+6px)] z-10 overflow-hidden rounded-2xl border border-black/[0.06] bg-white/95 shadow-[0_12px_32px_rgba(0,0,0,0.12)] backdrop-blur-xl">
+              {suggestions.map((festival) => (
+                <button
+                  key={festival.id}
+                  onClick={() => {
+                    onSearchQueryChange(festival.title);
+                    onSelectFestival(festival);
+                    setIsSearchFocused(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[13.5px] text-gray-800 hover:bg-black/[0.04]"
+                >
+                  <Search className="h-3.5 w-3.5 shrink-0 text-gray-300" strokeWidth={2} />
+                  <span className="truncate">{festival.title}</span>
+                  <span className="ml-auto shrink-0 truncate text-[12px] text-gray-400">
+                    {festival.addr.split(" ").slice(0, 2).join(" ")}
+                  </span>
+                </button>
+              ))}
+            </div>
           )}
         </div>
 
@@ -239,12 +286,29 @@ export default function FestivalList({
           />
         </div>
 
-        <button
-          onClick={() => onShowEndedChange(!showEnded)}
-          className="text-[12.5px] font-medium text-gray-400 underline decoration-gray-300 underline-offset-2"
-        >
-          {showEnded ? "종료된 축제 숨기기" : "종료된 축제도 보기"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => onShowEndedChange(!showEnded)}
+            className="text-[12.5px] font-medium text-gray-400 underline decoration-gray-300 underline-offset-2"
+          >
+            {showEnded ? "종료된 축제 숨기기" : "종료된 축제도 보기"}
+          </button>
+          {onShowFavoritesOnlyChange && (
+            <button
+              onClick={() => onShowFavoritesOnlyChange(!showFavoritesOnly)}
+              className={cn(
+                "flex items-center gap-1 text-[12.5px] font-medium underline decoration-gray-300 underline-offset-2",
+                showFavoritesOnly ? "text-red-500" : "text-gray-400",
+              )}
+            >
+              <Heart
+                className={cn("h-3 w-3", showFavoritesOnly && "fill-red-500")}
+                strokeWidth={2.5}
+              />
+              즐겨찾기만 보기
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
@@ -265,9 +329,13 @@ export default function FestivalList({
                     festival={festival}
                     isSelected={festival.id === selectedFestivalId}
                     isHovered={festival.id === hoveredFestivalId}
+                    isFavorite={favorites?.has(festival.id)}
                     onClick={() => onSelectFestival(festival)}
                     onHoverStart={() => onHoverFestival?.(festival.id)}
                     onHoverEnd={() => onHoverFestival?.(null)}
+                    onToggleFavorite={
+                      onToggleFavorite ? () => onToggleFavorite(festival.id) : undefined
+                    }
                   />
                 ))}
               </div>
