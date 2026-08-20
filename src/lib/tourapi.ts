@@ -232,7 +232,7 @@ async function fetchFestivalEventDates(
 
       if (res.status === 429) {
         if (attempt < MAX_RETRIES) {
-          await sleep(600 * (attempt + 1));
+          await sleep(1200 * (attempt + 1));
           continue;
         }
         if (debugLogCount < MAX_DEBUG_LOGS) {
@@ -306,9 +306,10 @@ async function fetchSupplementaryFestivals(
 
   if (missingItems.length === 0) return [];
 
-  // detailIntro2는 초당 요청 제한이 있어 동시 처리 수를 낮게, 배치 사이에 간격을 둔다.
-  const CONCURRENCY = 3;
-  const BATCH_DELAY_MS = 350;
+  // detailIntro2는 초당 요청 제한이 매우 엄격해서(동시 3개도 걸림) 순차 호출 + 넉넉한 간격이 필요하다.
+  // searchFestival2 쪽을 페이지네이션으로 보강한 뒤라서, 여기는 소수의 예외 케이스만 처리하면 된다.
+  const CONCURRENCY = 1;
+  const BATCH_DELAY_MS = 1100;
   // 서버리스 요청 시간 제한(및 사용자 체감 속도)을 고려해 한 번에 처리할 시간 예산을 둔다.
   // 예산을 넘기면 남은 건은 건너뛰고, 이미 성공한 항목(fetch 캐시)은 다음 재검증(1시간) 때
   // 즉시 캐시로 응답되므로 시간이 새 항목 쪽으로 자연히 배분되어 점점 더 많이 채워진다.
@@ -369,41 +370,11 @@ interface FetchFestivalsOptions {
   areaCode?: string;
 }
 
-/**
- * TourAPI 4.0 searchFestival1 호출
- * - Next.js fetch 캐시를 이용해 1시간(3600초) 단위로 갱신
- * - 서비스 키는 .env의 TOUR_API_KEY 사용 (Decoding 키 권장)
- */
-export async function fetchFestivalsFromTourApi(
-  options: FetchFestivalsOptions = {},
-): Promise<Festival[]> {
-  // .env.local에 따옴표/공백/줄바꿈이 섞여 들어오는 경우를 방어적으로 제거
-  const serviceKey = process.env.TOUR_API_KEY?.trim().replace(/^["']|["']$/g, "");
-  if (!serviceKey) {
-    throw new Error(
-      "TOUR_API_KEY 환경변수가 설정되어 있지 않습니다. .env.local을 확인하세요.",
-    );
-  }
-
-  const today = new Date();
-  const monthAgo = new Date(today);
-  monthAgo.setDate(monthAgo.getDate() - 30);
-  const defaultEventStartDate = `${monthAgo.getFullYear()}${String(
-    monthAgo.getMonth() + 1,
-  ).padStart(2, "0")}${String(monthAgo.getDate()).padStart(2, "0")}`;
-
-  const params = new URLSearchParams({
-    serviceKey,
-    MobileOS: "ETC",
-    MobileApp: "전국축제지도",
-    _type: "json",
-    numOfRows: String(options.numOfRows ?? 500),
-    pageNo: String(options.pageNo ?? 1),
-    arrange: "A",
-    eventStartDate: options.eventStartDate ?? defaultEventStartDate,
-    ...(options.areaCode ? { areaCode: options.areaCode } : {}),
-  });
-
+/** searchFestival2 한 페이지를 조회한다 */
+async function fetchFestivalPage(
+  serviceKey: string,
+  params: URLSearchParams,
+): Promise<{ items: TourApiFestivalItem[]; totalCount: number }> {
   const requestUrl = `${TOUR_API_BASE_URL}?${params.toString()}`;
 
   const res = await fetch(requestUrl, {
@@ -437,11 +408,82 @@ export async function fetchFestivalsFromTourApi(
       ? [rawItems]
       : [];
 
-  const primaryFestivals = items
+  return { items, totalCount: data.response.body.totalCount };
+}
+
+/**
+ * TourAPI 4.0 searchFestival2 호출
+ * - Next.js fetch 캐시를 이용해 1시간(3600초) 단위로 갱신
+ * - 서비스 키는 .env의 TOUR_API_KEY 사용 (Decoding 키 권장)
+ * - totalCount가 한 페이지(numOfRows)보다 많으면 나머지 페이지도 이어서 가져온다.
+ *   (예전에는 1페이지만 가져와서, 축제 수가 많은 시기엔 뒷부분이 통째로 누락됐었다)
+ */
+export async function fetchFestivalsFromTourApi(
+  options: FetchFestivalsOptions = {},
+): Promise<Festival[]> {
+  // .env.local에 따옴표/공백/줄바꿈이 섞여 들어오는 경우를 방어적으로 제거
+  const serviceKey = process.env.TOUR_API_KEY?.trim().replace(/^["']|["']$/g, "");
+  if (!serviceKey) {
+    throw new Error(
+      "TOUR_API_KEY 환경변수가 설정되어 있지 않습니다. .env.local을 확인하세요.",
+    );
+  }
+
+  const today = new Date();
+  const monthAgo = new Date(today);
+  monthAgo.setDate(monthAgo.getDate() - 30);
+  const defaultEventStartDate = `${monthAgo.getFullYear()}${String(
+    monthAgo.getMonth() + 1,
+  ).padStart(2, "0")}${String(monthAgo.getDate()).padStart(2, "0")}`;
+
+  const numOfRows = options.numOfRows ?? 1000;
+  const eventStartDate = options.eventStartDate ?? defaultEventStartDate;
+  // 페이지네이션이 무한 루프에 빠지지 않도록 안전 상한을 둔다 (numOfRows=1000 기준 최대 1만 건).
+  const MAX_PAGES = 10;
+
+  const buildParams = (pageNo: number) =>
+    new URLSearchParams({
+      serviceKey,
+      MobileOS: "ETC",
+      MobileApp: "전국축제지도",
+      _type: "json",
+      numOfRows: String(numOfRows),
+      pageNo: String(pageNo),
+      arrange: "A",
+      eventStartDate,
+      ...(options.areaCode ? { areaCode: options.areaCode } : {}),
+    });
+
+  const allItems: TourApiFestivalItem[] = [];
+  let pageNo = options.pageNo ?? 1;
+  let totalCount = 0;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const { items, totalCount: total } = await fetchFestivalPage(
+      serviceKey,
+      buildParams(pageNo),
+    );
+    allItems.push(...items);
+    totalCount = total;
+
+    const hasMore = allItems.length < totalCount && items.length > 0;
+    if (!hasMore) break;
+
+    pageNo += 1;
+    // 다음 페이지 요청 전 살짝 쉬어서 초당 요청 제한을 피한다.
+    await sleep(250);
+  }
+
+  console.log(
+    `[tourapi] searchFestival2 조회 완료: totalCount=${totalCount}, ${allItems.length}건 수집`,
+  );
+
+  const primaryFestivals = allItems
     .map(transformFestivalItem)
     .filter((f): f is Festival => f !== null);
 
-  // areaBasedList2로 보완 조회 (실패해도 기존 결과는 그대로 반환)
+  // areaBasedList2로 보완 조회 (searchFestival2 페이지네이션 이후 남는 소수의 예외 케이스만 대상)
+  // 실패해도 기존 결과는 그대로 반환한다.
   let supplementaryFestivals: Festival[] = [];
   try {
     const existingIds = new Set(primaryFestivals.map((f) => f.id));
