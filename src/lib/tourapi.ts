@@ -7,22 +7,13 @@ import type {
   TourApiResponse,
 } from "@/types/festival";
 import { AREA_CODE_TO_REGION, L_DONG_REGN_CD_TO_REGION } from "@/types/festival";
+import festivalStandardData from "@/data/festivalStandardData.json";
 
 // NOTE: KorService2(신버전) 서비스는 오퍼레이션명도 "…2" 접미사를 쓴다.
 // (KorService1 -> searchFestival1, KorService2 -> searchFestival2)
 // 두 버전을 섞어 쓰면 NO_OPENAPI_SERVICE_ERROR(반환코드 12)가 발생한다.
 const TOUR_API_BASE_URL =
   "https://apis.data.go.kr/B551011/KorService2/searchFestival2";
-
-// 지역기반 관광정보조회(areaBasedList2) - searchFestival2가 놓치는 축제(행사 기간이
-// 등록되지 않았거나 검색 기간 밖인 경우 등)를 보완하기 위해 추가로 조회한다.
-// contentTypeId=15 는 "축제/공연/행사" 카테고리를 의미한다.
-const AREA_BASED_LIST_URL =
-  "https://apis.data.go.kr/B551011/KorService2/areaBasedList2";
-// 행사 시작/종료일은 areaBasedList2 응답에 없어서, 상세 소개(detailIntro2)를 한 번 더 호출해 채운다.
-const DETAIL_INTRO_URL =
-  "https://apis.data.go.kr/B551011/KorService2/detailIntro2";
-const FESTIVAL_CONTENT_TYPE_ID = "15";
 
 /** YYYYMMDD -> YYYY-MM-DD */
 function formatDate(raw: string): string {
@@ -140,228 +131,122 @@ export function transformFestivalItem(item: TourApiFestivalItem): Festival | nul
   };
 }
 
-/** areaBasedList2 원본 응답 아이템 (행사 시작/종료일 필드가 없다) */
-interface TourApiAreaBasedItem {
-  addr1: string;
-  addr2?: string;
-  areacode: string;
-  sigungucode?: string;
-  lDongRegnCd?: string;
-  lDongSignguCd?: string;
-  contentid: string;
-  contenttypeid: string;
-  firstimage?: string;
-  firstimage2?: string;
-  mapx: string;
-  mapy: string;
-  tel?: string;
-  title: string;
-}
-
-/** detailIntro2 응답 중 축제(contentTypeId=15)에서 쓰는 필드만 발췌 */
-interface TourApiFestivalIntroItem {
-  eventstartdate?: string;
-  eventenddate?: string;
-  sponsor1?: string;
-}
-
-function buildCommonParams(serviceKey: string): Record<string, string> {
-  return {
-    serviceKey,
-    MobileOS: "ETC",
-    MobileApp: "전국축제지도",
-    _type: "json",
-  };
-}
-
-/**
- * areaBasedList2로 축제(contentTypeId=15) 목록을 조회한다.
- * searchFestival2와 달리 기간 파라미터가 없어, 등록된 축제 전체가 대상이 된다.
- */
-async function fetchAreaBasedFestivalItems(
-  serviceKey: string,
-): Promise<TourApiAreaBasedItem[]> {
-  const params = new URLSearchParams({
-    ...buildCommonParams(serviceKey),
-    numOfRows: "1000",
-    pageNo: "1",
-    arrange: "C",
-    contentTypeId: FESTIVAL_CONTENT_TYPE_ID,
-  });
-
-  const requestUrl = `${AREA_BASED_LIST_URL}?${params.toString()}`;
-  const res = await fetch(requestUrl, { next: { revalidate: 3600 } });
-
-  if (!res.ok) {
-    const bodyText = await res.text().catch(() => "(본문을 읽을 수 없음)");
-    console.error(
-      `[tourapi] areaBasedList2 요청 실패 - status: ${res.status} ${res.statusText}\n응답 본문: ${bodyText}`,
-    );
-    return [];
-  }
-
-  const data = (await res.json()) as TourApiResponse<TourApiAreaBasedItem>;
-  if (data.response.header.resultCode !== "0000") {
-    console.error(`[tourapi] areaBasedList2 오류: ${data.response.header.resultMsg}`);
-    return [];
-  }
-
-  const rawItems = data.response.body.items.item;
-  return Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
-}
-
-// 원인 파악을 위해 detailIntro2 실패/이상 응답 로그를 앞의 몇 건만 자세히 남긴다.
-let debugLogCount = 0;
-const MAX_DEBUG_LOGS = 5;
-
-/** detailIntro2로 특정 축제(contentId)의 행사 시작/종료일을 조회한다 */
-async function fetchFestivalEventDates(
-  serviceKey: string,
-  contentId: string,
-): Promise<TourApiFestivalIntroItem | null> {
-  const params = new URLSearchParams({
-    ...buildCommonParams(serviceKey),
-    contentId,
-    contentTypeId: FESTIVAL_CONTENT_TYPE_ID,
-  });
-
-  const requestUrl = `${DETAIL_INTRO_URL}?${params.toString()}`;
-
-  // TourAPI는 "초당 요청 제한"이 있어(LIMITED_NUMBER_OF_SERVICE_REQUESTS_PER_SECOND_EXCEEDS_ERROR,
-  // HTTP 429) 짧은 시간에 몰아서 호출하면 실패한다. 429를 받으면 잠깐 쉬었다가 최대 2번 더 재시도한다.
-  const MAX_RETRIES = 2;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const res = await fetch(requestUrl, { next: { revalidate: 3600 } });
-
-      if (res.status === 429) {
-        if (attempt < MAX_RETRIES) {
-          await sleep(1200 * (attempt + 1));
-          continue;
-        }
-        if (debugLogCount < MAX_DEBUG_LOGS) {
-          debugLogCount++;
-          console.error(
-            `[tourapi] detailIntro2 재시도 초과 (contentId: ${contentId}) - 초당 요청 제한 지속`,
-          );
-        }
-        return null;
-      }
-
-      if (!res.ok) {
-        if (debugLogCount < MAX_DEBUG_LOGS) {
-          debugLogCount++;
-          const bodyText = await res.text().catch(() => "(본문을 읽을 수 없음)");
-          console.error(
-            `[tourapi] detailIntro2 응답 실패 (contentId: ${contentId}) - status: ${res.status}\n응답 본문: ${bodyText}`,
-          );
-        }
-        return null;
-      }
-
-      const data = (await res.json()) as TourApiResponse<TourApiFestivalIntroItem>;
-      if (data.response.header.resultCode !== "0000") {
-        if (debugLogCount < MAX_DEBUG_LOGS) {
-          debugLogCount++;
-          console.error(
-            `[tourapi] detailIntro2 오류 (contentId: ${contentId}): ` +
-              `${data.response.header.resultCode} - ${data.response.header.resultMsg}`,
-          );
-        }
-        return null;
-      }
-
-      const rawItems = data.response.body.items.item;
-      const item = Array.isArray(rawItems) ? rawItems[0] : rawItems || null;
-      return item || null;
-    } catch (error) {
-      if (debugLogCount < MAX_DEBUG_LOGS) {
-        debugLogCount++;
-        console.error(`[tourapi] detailIntro2 요청 실패 (contentId: ${contentId}):`, error);
-      }
-      return null;
-    }
-  }
-
-  return null;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * searchFestival2 결과에 없는 축제를 areaBasedList2로 보완해 가져온다.
- * (행사 기간이 검색 기간 밖이거나 미등록이라 searchFestival2에서 누락된 경우 대비)
- * 상세 호출(detailIntro2)이 추가로 발생하므로, 이미 갖고 있는 id는 건너뛴다.
- */
-async function fetchSupplementaryFestivals(
-  serviceKey: string,
-  existingIds: Set<string>,
-): Promise<Festival[]> {
-  debugLogCount = 0;
-  const areaItems = await fetchAreaBasedFestivalItems(serviceKey);
-  const missingItems = areaItems.filter((item) => !existingIds.has(item.contentid));
+/** 주소 앞부분(시/도명) -> 내부 RegionFilter 매핑 (표준데이터셋용, areaCode가 없어 주소 문자열로 추정) */
+const ADDRESS_PREFIX_TO_REGION: [string, RegionFilter][] = [
+  ["서울", "seoul"],
+  ["인천", "gyeonggi"],
+  ["경기", "gyeonggi"],
+  ["강원", "gangwon"],
+  ["대전", "chungcheong"],
+  ["세종", "chungcheong"],
+  ["충청남도", "chungcheong"],
+  ["충남", "chungcheong"],
+  ["충청북도", "chungcheong"],
+  ["충북", "chungcheong"],
+  ["광주", "jeolla"],
+  ["전라남도", "jeolla"],
+  ["전남", "jeolla"],
+  ["전라북도", "jeolla"],
+  ["전북", "jeolla"],
+  ["대구", "gyeongsang"],
+  ["울산", "gyeongsang"],
+  ["부산", "gyeongsang"],
+  ["경상남도", "gyeongsang"],
+  ["경남", "gyeongsang"],
+  ["경상북도", "gyeongsang"],
+  ["경북", "gyeongsang"],
+  ["제주", "jeju"],
+];
 
-  console.log(
-    `[tourapi] areaBasedList2 보완 조회: 전체 ${areaItems.length}건 중 ` +
-      `searchFestival2에 없는 ${missingItems.length}건 발견 (기존 ${existingIds.size}건)`,
-  );
+function resolveRegionFromAddress(addr: string): RegionFilter {
+  const found = ADDRESS_PREFIX_TO_REGION.find(([prefix]) => addr.startsWith(prefix));
+  return found ? found[1] : "all";
+}
 
-  if (missingItems.length === 0) return [];
+/** 공공데이터포털 "전국문화축제표준데이터" 스냅샷 원본 레코드 */
+interface StandardFestivalRecord {
+  축제명: string;
+  개최장소: string;
+  축제시작일자: string; // YYYY-MM-DD
+  축제종료일자: string; // YYYY-MM-DD
+  축제내용?: string;
+  주관기관명?: string;
+  주최기관명?: string;
+  전화번호?: string;
+  홈페이지주소?: string;
+  소재지도로명주소?: string;
+  소재지지번주소?: string;
+  위도: string;
+  경도: string;
+}
 
-  // detailIntro2는 초당 요청 제한이 매우 엄격해서(동시 3개도 걸림) 순차 호출 + 넉넉한 간격이 필요하다.
-  // searchFestival2 쪽을 페이지네이션으로 보강한 뒤라서, 여기는 소수의 예외 케이스만 처리하면 된다.
-  const CONCURRENCY = 1;
-  const BATCH_DELAY_MS = 1100;
-  // 서버리스 요청 시간 제한(및 사용자 체감 속도)을 고려해 한 번에 처리할 시간 예산을 둔다.
-  // 예산을 넘기면 남은 건은 건너뛰고, 이미 성공한 항목(fetch 캐시)은 다음 재검증(1시간) 때
-  // 즉시 캐시로 응답되므로 시간이 새 항목 쪽으로 자연히 배분되어 점점 더 많이 채워진다.
-  const TIME_BUDGET_MS = 8000;
-  const startedAt = Date.now();
-
-  const results: Festival[] = [];
-  let skippedByBudget = 0;
-
-  for (let i = 0; i < missingItems.length; i += CONCURRENCY) {
-    if (Date.now() - startedAt > TIME_BUDGET_MS) {
-      skippedByBudget = missingItems.length - i;
-      break;
-    }
-
-    const batch = missingItems.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.all(
-      batch.map(async (item) => {
-        const intro = await fetchFestivalEventDates(serviceKey, item.contentid);
-        if (!intro?.eventstartdate || !intro?.eventenddate) return null;
-
-        const fullItem: TourApiFestivalItem = {
-          ...item,
-          cat1: "",
-          cat2: "",
-          cat3: "",
-          contenttypeid: FESTIVAL_CONTENT_TYPE_ID,
-          createdtime: "",
-          eventstartdate: intro.eventstartdate,
-          eventenddate: intro.eventenddate,
-          modifiedtime: "",
-          sponsor1: intro.sponsor1,
-        };
-        return transformFestivalItem(fullItem);
-      }),
-    );
-    results.push(...batchResults.filter((f): f is Festival => f !== null));
-
-    if (i + CONCURRENCY < missingItems.length) {
-      await sleep(BATCH_DELAY_MS);
-    }
+/** 레코드 내용 기반으로 안정적인 고유 id를 만든다 (표준데이터셋엔 TourAPI 같은 contentId가 없다) */
+function buildStandardFestivalId(record: StandardFestivalRecord): string {
+  const raw = `${record.축제명}_${record.축제시작일자}_${record.위도}_${record.경도}`;
+  let hash = 0;
+  for (let i = 0; i < raw.length; i++) {
+    hash = (hash * 31 + raw.charCodeAt(i)) | 0;
   }
+  return `std-${Math.abs(hash)}`;
+}
 
-  console.log(
-    `[tourapi] areaBasedList2 보완 조회 완료: ${missingItems.length}건 중 ` +
-      `기간 정보 확인 후 ${results.length}건 최종 추가` +
-      (skippedByBudget > 0 ? ` (시간 예산 초과로 ${skippedByBudget}건은 이번 조회에서 건너뜀)` : ""),
-  );
+function transformStandardRecord(record: StandardFestivalRecord): Festival | null {
+  const lat = Number(record.위도);
+  const lng = Number(record.경도);
+  if (!lat || !lng || Number.isNaN(lat) || Number.isNaN(lng)) return null;
+
+  const startRaw = record.축제시작일자?.replace(/-/g, "");
+  const endRaw = record.축제종료일자?.replace(/-/g, "");
+  if (!startRaw || !endRaw) return null;
+
+  const { status, dDay } = computeFestivalStatus(startRaw, endRaw);
+  const addr = record.소재지도로명주소 || record.소재지지번주소 || record.개최장소 || "";
+  const place = addr.split(" ").slice(0, 2).join(" ") || "현지";
+  const sponsor = record.주최기관명 || record.주관기관명 || null;
+
+  return {
+    id: buildStandardFestivalId(record),
+    title: record.축제명,
+    addr,
+    lat,
+    lng,
+    startDate: record.축제시작일자,
+    endDate: record.축제종료일자,
+    image: null,
+    tel: record.전화번호 || null,
+    sponsor,
+    areaCode: "",
+    region: resolveRegionFromAddress(addr),
+    status,
+    dDay,
+    aiSummary: `${sponsor ? `${sponsor} 주최로 진행되며, ` : ""}${place} 일대에서 열리는 지역 축제로, 방문 전 최신 프로그램 정보를 확인하는 것을 추천합니다.`,
+  };
+}
+
+/**
+ * 공공데이터포털 "전국문화축제표준데이터"(지자체가 직접 등록) 스냅샷 파일로 축제를 보완한다.
+ * TourAPI(searchFestival2)엔 아직 등록되지 않았거나 날짜가 갱신 안 된 축제를 지자체가
+ * 먼저 등록해둔 경우가 있어, 제목이 겹치지 않는 것만 추가로 합친다.
+ * - 실시간 API가 아니라 다운로드한 정적 스냅샷이라 자동으로 최신화되지 않는다.
+ *   (최신 파일을 받으면 src/data/festivalStandardData.json을 교체하면 됨)
+ */
+function loadSupplementaryStandardFestivals(existingTitles: Set<string>): Festival[] {
+  const records = (festivalStandardData as { records: StandardFestivalRecord[] }).records;
+  const seenTitles = new Set(existingTitles);
+  const results: Festival[] = [];
+
+  for (const record of records) {
+    const title = record.축제명?.trim();
+    if (!title || seenTitles.has(title)) continue;
+    seenTitles.add(title);
+
+    const festival = transformStandardRecord(record);
+    if (festival) results.push(festival);
+  }
 
   return results;
 }
@@ -486,19 +371,17 @@ export async function fetchFestivalsFromTourApi(
     .map(transformFestivalItem)
     .filter((f): f is Festival => f !== null);
 
-  // areaBasedList2 보완 조회는 기본적으로 꺼둔다.
-  // detailIntro2가 매우 엄격한 초당 요청 제한에 걸려(순차 호출 + 1.1초 간격에도 재시도까지 실패),
-  // 매 요청마다 8~10초를 그냥 날리면서도 실제로는 0건 추가되는 상태였다.
-  // 필요하면 ENABLE_AREA_BASED_SUPPLEMENT=true 환경변수로 다시 켤 수 있다.
-  const supplementEnabled = process.env.ENABLE_AREA_BASED_SUPPLEMENT === "true";
+  // 표준데이터셋(정적 스냅샷)으로 보완: 네트워크 호출이 없어 빠르고 요청 제한 걱정도 없다.
   let supplementaryFestivals: Festival[] = [];
-  if (supplementEnabled) {
-    try {
-      const existingIds = new Set(primaryFestivals.map((f) => f.id));
-      supplementaryFestivals = await fetchSupplementaryFestivals(serviceKey, existingIds);
-    } catch (error) {
-      console.error("[tourapi] areaBasedList2 보완 조회 실패:", error);
-    }
+  try {
+    const existingTitles = new Set(primaryFestivals.map((f) => f.title.trim()));
+    supplementaryFestivals = loadSupplementaryStandardFestivals(existingTitles);
+    console.log(
+      `[tourapi] 표준데이터셋 보완: ${supplementaryFestivals.length}건 추가 ` +
+        `(searchFestival2 ${primaryFestivals.length}건 + 표준데이터셋 보완)`,
+    );
+  } catch (error) {
+    console.error("[tourapi] 표준데이터셋 보완 실패:", error);
   }
 
   return [...primaryFestivals, ...supplementaryFestivals];
