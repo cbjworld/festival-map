@@ -129,18 +129,28 @@ export default function Home() {
     window.history.replaceState(null, "", window.location.pathname);
   }, [festivals]);
 
+  // 최초 진입 시 위치 확인이 끝났는지(성공/실패 상관없이) 여부.
+  // 이게 true가 되기 전까지는 지도를 만들지 않고 기다렸다가, 확인되면 그 위치로 바로 지도를 띄운다.
+  // (먼저 전국 지도를 보여줬다가 위치를 받으면 다시 이동하는 "깜빡임"을 피하기 위함)
+  const [isInitialLocationResolved, setIsInitialLocationResolved] = useState(false);
+
   // 사용자 위치 요청 (최초 진입 시 자동 1회 + "내 위치로 이동" 버튼에서 재사용)
   const requestUserLocation = useCallback(() => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setIsInitialLocationResolved(true);
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setUserLocation({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
         });
+        setIsInitialLocationResolved(true);
       },
       () => {
         // 위치 권한 거부/실패 시 대한민국 중심부 유지
+        setIsInitialLocationResolved(true);
       },
       { timeout: 5000 },
     );
@@ -275,6 +285,7 @@ export default function Home() {
           onSelectFestival={handleSelectFestival}
           hoveredFestivalId={hoveredFestivalId}
           userLocation={userLocation}
+          isInitialLocationResolved={isInitialLocationResolved}
           onMapClick={() => setSelectedFestivalId(null)}
           onReady={(controls) => {
             mapControlsRef.current = controls;
