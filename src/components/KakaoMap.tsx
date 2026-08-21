@@ -25,6 +25,13 @@ interface KakaoMapProps {
   hoveredFestivalId?: string | null;
   /** 사용자 현재 위치 (있으면 초기 중심으로 사용 + 위치 마커 표시) */
   userLocation?: { lat: number; lng: number } | null;
+  /**
+   * 최초 위치 확인이 끝났는지(성공/실패 상관없이) 여부.
+   * false인 동안은 지도를 만들지 않고 기다렸다가, true가 되면 그 시점의 userLocation을
+   * 기준으로 바로 지도를 생성한다 - "전국 지도가 잠깐 보였다가 내 위치로 이동하는" 깜빡임을 피하기 위함.
+   * 전달하지 않으면(=undefined) 기존처럼 기다리지 않고 바로 생성한다.
+   */
+  isInitialLocationResolved?: boolean;
   /** 마커가 아닌 지도의 빈 영역을 클릭했을 때 (상세 카드 닫기 등에 사용) */
   onMapClick?: () => void;
   /** 지도가 준비되면 제어 함수(panTo 등)를 한 번 전달 */
@@ -186,6 +193,7 @@ export default function KakaoMap({
   onSelectFestival,
   hoveredFestivalId,
   userLocation,
+  isInitialLocationResolved,
   onMapClick,
   onReady,
 }: KakaoMapProps) {
@@ -203,8 +211,11 @@ export default function KakaoMap({
   const kakaoAppKey = process.env.NEXT_PUBLIC_KAKAO_MAP_APP_KEY ?? "";
 
   // 지도 최초 생성
+  // isInitialLocationResolved가 명시적으로 전달된 경우, 위치 확인이 끝날 때까지 기다렸다가
+  // 그 시점의 userLocation으로 바로 지도를 만든다 (전국 지도 -> 내 위치로 튀는 깜빡임 방지).
+  const waitingForLocation = isInitialLocationResolved === false;
   useEffect(() => {
-    if (!isSdkLoaded || !mapContainerRef.current || mapRef.current) return;
+    if (!isSdkLoaded || !mapContainerRef.current || mapRef.current || waitingForLocation) return;
 
     window.kakao.maps.load(() => {
       const center = new window.kakao.maps.LatLng(
@@ -234,7 +245,7 @@ export default function KakaoMap({
       setIsMapReady(true);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSdkLoaded]);
+  }, [isSdkLoaded, waitingForLocation]);
 
   // 지도가 준비되면 부모에게 제어 함수(panTo)를 한 번 전달
   useEffect(() => {
