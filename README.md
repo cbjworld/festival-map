@@ -1,68 +1,72 @@
-# 전국 축제 지도
+![전국 축제 지도 프로젝트 표지](docs/cover.svg)
 
-한국관광공사 TourAPI 4.0(`searchFestival1`) 데이터를 카카오맵 위에 시각화하는 Next.js 웹 서비스입니다.
+# 전국 축제 지도 · Festival Map
 
-## 주요 기능
+**이번 주말, 어디로 갈까요?** 지역과 기간을 고르고 전국 축제를 지도에서 찾아보는 웹앱입니다.
 
-- 전체 화면 카카오맵에 축제를 상태별(진행 중 / 개최 예정 / 종료) 커스텀 마커로 표시
-  - 🟢 진행 중: 초록색 마커 + 아우라 펄스 애니메이션
-  - 🟡 개최 예정(14일 이내 시작): 노란색 마커
-  - ⚪ 종료/기타: 회색 마커 (토글로 표시 여부 선택)
-- 지역별(전국/서울/경기/강원/충청/전라/경상/제주) · 상태별(전체/진행 중/이번 주 시작) 필터
-- 축제 이름 · 장소 실시간 검색
-- 마커 클릭 시 상세 정보 카드 (모바일: 하단 시트, 데스크톱: 좌측 카드)
-  - 대표 이미지, 기간, D-Day, 주소, AI 1줄 요약
-  - 카카오맵 길찾기 연결 / 카카오톡 공유하기
-- Next.js `fetch` 캐싱(`revalidate: 3600`)으로 TourAPI 호출 트래픽 절감
+`Next.js` · `TypeScript` · `Kakao Maps` · `TourAPI`
 
-## 시작하기
+## 한눈에 보는 기능
 
-### 1. 환경 변수 설정
+| 찾기 | 살펴보기 | 기억하기 |
+| --- | --- | --- |
+| 지역·기간·상태 필터와 이름·장소 검색 | 지도 마커, 상세 카드, 기간과 주소 | 즐겨찾기와 공유 링크 |
 
-`.env.local.example`을 복사해 `.env.local`을 만들고 값을 채워주세요.
+축제 목록과 지도를 연결해 관심 있는 행사의 위치를 바로 확인할 수 있습니다. 진행 중·개최 예정·종료 상태를 구분하고, 종료된 행사의 표시 여부를 바꿀 수 있습니다. 즐겨찾기는 브라우저에 저장됩니다.
+
+## 이렇게 사용해요
+
+1. 지역과 날짜 범위를 선택합니다.
+2. 축제 이름이나 장소를 검색하거나 지도에서 마커를 선택합니다.
+3. 상세 정보와 길찾기를 확인하고, 관심 행사를 즐겨찾기에 넣습니다.
+
+> 기존 배포 주소는 이번 점검에서 정상 응답을 확인하지 못했습니다. 아래 방법으로 로컬에서 실행할 수 있습니다.
+
+## 로컬 실행
 
 ```bash
-cp .env.local.example .env.local
+git clone https://github.com/cbjworld/festival-map.git
+cd festival-map
+npm install
 ```
 
-- `TOUR_API_KEY`: [공공데이터포털](https://www.data.go.kr)에서 "한국관광공사_국문 관광정보 서비스" 활용신청 후 발급받은 **Decoding** 서비스 키
-- `NEXT_PUBLIC_KAKAO_MAP_APP_KEY`: [카카오 개발자 콘솔](https://developers.kakao.com)에서 발급받은 JavaScript 키
-  - 콘솔 > 내 애플리케이션 > 앱 설정 > 플랫폼에 배포 도메인(예: `https://your-app.vercel.app`, 로컬 개발용 `http://localhost:3000`)을 등록해야 지도가 정상적으로 로드됩니다.
-- `NEXT_PUBLIC_KAKAO_JS_KEY`: 카카오톡 공유하기(Kakao SDK)용 JS 키. 보통 위 지도 키와 동일한 앱 키를 사용합니다.
+`.env.local.example`을 `.env.local`로 복사한 뒤 아래 값을 설정합니다.
 
-### 2. 패키지 설치 및 실행
+| 변수 | 용도 |
+| --- | --- |
+| `TOUR_API_KEY` | 서버의 관광정보 조회 키 |
+| `NEXT_PUBLIC_KAKAO_MAP_APP_KEY` | 브라우저의 카카오 지도 JavaScript 키 |
+| `NEXT_PUBLIC_KAKAO_JS_KEY` | 카카오톡 공유 기능의 JavaScript 키(선택) |
 
 ```bash
-npm install
 npm run dev
 ```
 
-브라우저에서 http://localhost:3000 접속
+`http://localhost:3000`에서 열 수 있습니다. 카카오 개발자 콘솔의 허용 도메인에도 로컬 또는 배포 주소를 등록하세요. 관광정보 키는 서버 환경변수로 관리하세요.
 
-### 3. 배포 (Vercel)
+## 배포와 구조
 
-1. GitHub 리포지토리에 push
-2. Vercel에서 Import Project
-3. 프로젝트 설정 > Environment Variables에 `.env.local`과 동일한 키/값 등록
-4. 카카오 개발자 콘솔의 플랫폼 설정에 Vercel 배포 도메인 추가
-
-## 프로젝트 구조
-
-```
-src/
-  types/festival.ts            TourAPI 응답 및 축제 도메인 타입
-  types/kakao-maps.d.ts        카카오맵 JS SDK 최소 타입 선언
-  lib/tourapi.ts                TourAPI 호출 및 Festival 변환/상태 계산 로직
-  lib/utils.ts                  Tailwind 클래스 병합 유틸(cn)
-  app/api/festivals/route.ts    TourAPI를 감싸는 API Route (1시간 캐시)
-  components/KakaoMap.tsx       커스텀 오버레이 마커 카카오맵 컴포넌트
-  components/FestivalDetailCard.tsx  상세 정보 카드/시트
-  components/ui/button.tsx      Shadcn 컨벤션 Button 컴포넌트
-  app/page.tsx                  지도 + 검색 + 필터 + 상세카드 통합 메인 페이지
+```bash
+npm run build
+npm start
 ```
 
-## 참고 사항
+Next.js를 지원하는 환경에 배포하고 동일한 환경변수를 설정합니다.
 
-- TourAPI 응답에는 문의처(`sponsor1`), 전화번호(`tel`) 등이 비어있는 경우가 많아 UI에서는 값이 있을 때만 표시하도록 처리되어 있습니다.
-- "AI 1줄 요약"은 API 비용 없이 동작하도록 보유 필드 기반 휴리스틱으로 생성됩니다. 실제 LLM 요약으로 교체하려면 `src/lib/tourapi.ts`의 `buildAiSummary` 함수를 API Route(Claude/OpenAI 등)를 호출하도록 교체하면 됩니다.
-- 지역 필터는 TourAPI `areacode`를 광역 그룹(충청/전라/경상 등)으로 매핑한 것으로, 세부 시/도가 필요하면 `AREA_CODE_TO_REGION`을 확장하세요.
+| 경로 | 역할 |
+| --- | --- |
+| `src/app/page.tsx` | 검색·필터·지도와 목록 |
+| `src/app/api/festivals/route.ts` | 축제 데이터 API |
+| `src/components/KakaoMap.tsx` | 지도와 마커 |
+| `src/hooks/useFavorites.ts` | 브라우저 즐겨찾기 |
+| `src/lib/tourapi.ts` | 관광정보 조회·변환 |
+
+## 데이터 안내
+
+행사 일정과 상세 정보는 데이터 제공처와 실제 행사 안내를 함께 확인하세요. 요약 문구는 보유 필드로 만드는 규칙 기반 요약이며, 외부 생성형 AI를 호출하지 않습니다.
+
+## 함께 개선해요
+
+유용했다면 **⭐ Star**로 응원해 주세요. [Issues](https://github.com/cbjworld/festival-map/issues)에 오류 재현 방법이나 개선 아이디어를 남겨주시면 도움이 됩니다. 예시 자료에서 개인정보와 비공개 데이터는 제거해 주세요.
+
+**English:** Explore Korean festivals by region, date and status on a Kakao map. Built with Next.js and TypeScript, with browser-local favorites and server-side tourism data fetching.
